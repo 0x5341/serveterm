@@ -20,10 +20,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    outDir: "dist",
+  },
   test: {
     browser: {
       provider: playwright(),
       enabled: true,
+      headless: true,
       instances: [{ browser: "chromium" }],
     },
   },
