@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 )
@@ -79,6 +80,46 @@ func TestWebSocketBridgeHandlesResizeControlMessage(t *testing.T) {
 	case got := <-session.input:
 		t.Fatalf("resize payload must not be forwarded as input, got %q", string(got))
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestWebSocketBridgeSanitizesInvalidUTF8Output(t *testing.T) {
+	session := newFakeSession()
+	handler := NewWebSocketBridge(func(*http.Request) (Session, error) {
+		return session, nil
+	})
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	session.emitOutput([]byte{0xff, 'A', 0xfe, 'B'})
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline() error = %v", err)
+	}
+	_, got, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage() error = %v", err)
+	}
+	if !utf8.Valid(got) {
+		t.Fatalf("message is not valid UTF-8: %v", got)
+	}
+	if string(got) != "\uFFFDA\uFFFDB" {
+		t.Fatalf("message = %q, want %q", string(got), "\uFFFDA\uFFFDB")
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("ok\n")); err != nil {
+		t.Fatalf("WriteMessage() error = %v", err)
+	}
+	if input := session.awaitInput(t); string(input) != "ok\n" {
+		t.Fatalf("session input = %q, want %q", string(input), "ok\\n")
 	}
 }
 
@@ -183,6 +224,66 @@ func TestWebSocketBridgeRestartsShellWhenSessionEnds(t *testing.T) {
 	}
 }
 
+func TestWebSocketBridgeDoesNotRestartAfterClientDisconnect(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		sessions []*fakeSession
+	)
+	handler := NewWebSocketBridge(func(*http.Request) (Session, error) {
+		session := newFakeSession()
+		mu.Lock()
+		sessions = append(sessions, session)
+		mu.Unlock()
+		return session, nil
+	})
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	waitForSessions := func(n int) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			got := len(sessions)
+			mu.Unlock()
+			if got >= n {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for %d sessions", n)
+	}
+
+	waitForSessions(1)
+	mu.Lock()
+	first := sessions[0]
+	mu.Unlock()
+
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	first.awaitClosed(t)
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := len(sessions)
+		mu.Unlock()
+		if got != 1 {
+			t.Fatalf("session count after disconnect = %d, want %d", got, 1)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 type fakeSession struct {
 	output chan []byte
 	input  chan []byte
@@ -267,5 +368,14 @@ func (s *fakeSession) awaitResize(t *testing.T) (int, int) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for resize event")
 		return 0, 0
+	}
+}
+
+func (s *fakeSession) awaitClosed(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for session close")
 	}
 }

@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -21,6 +23,8 @@ type Session interface {
 type SessionFactory func(r *http.Request) (Session, error)
 
 const sessionRestartClearSequence = "\x1b[2J\x1b[H"
+
+var errBridgeClosing = errors.New("websocket bridge closing")
 
 func NewWebSocketBridge(startSession SessionFactory) http.Handler {
 	upgrader := websocket.Upgrader{
@@ -71,7 +75,21 @@ func NewWebSocketBridge(startSession SessionFactory) http.Handler {
 			return lastCols, lastRows, lastSizeValid
 		}
 
+		var bridgeMu sync.RWMutex
+		bridgeClosing := false
+		setBridgeClosing := func() {
+			bridgeMu.Lock()
+			bridgeClosing = true
+			bridgeMu.Unlock()
+		}
+		isBridgeClosing := func() bool {
+			bridgeMu.RLock()
+			defer bridgeMu.RUnlock()
+			return bridgeClosing
+		}
+
 		defer func() {
+			setBridgeClosing()
 			s := getSession()
 			_ = s.Close()
 			_ = s.Wait()
@@ -84,9 +102,17 @@ func NewWebSocketBridge(startSession SessionFactory) http.Handler {
 			return prev
 		}
 		restartSession := func() error {
+			if isBridgeClosing() {
+				return errBridgeClosing
+			}
 			next, err := startSession(r)
 			if err != nil {
 				return err
+			}
+			if isBridgeClosing() {
+				_ = next.Close()
+				_ = next.Wait()
+				return errBridgeClosing
 			}
 			if cols, rows, ok := loadLastSize(); ok {
 				if err := next.Resize(cols, rows); err != nil {
@@ -109,7 +135,9 @@ func NewWebSocketBridge(startSession SessionFactory) http.Handler {
 			errCh <- pumpSocketToSession(conn, getSession, storeLastSize)
 		}()
 
-		<-errCh
+		if bridgeErr := <-errCh; bridgeErr != nil {
+			log.Printf("/ws error: %v", bridgeErr)
+		}
 	})
 }
 
@@ -119,13 +147,17 @@ func pumpSessionToSocket(conn *websocket.Conn, currentSession func() Session, re
 		session := currentSession()
 		n, err := session.Read(buf)
 		if n > 0 {
-			if writeErr := conn.WriteMessage(websocket.TextMessage, buf[:n]); writeErr != nil {
+			chunk := bytes.ToValidUTF8(buf[:n], []byte("\uFFFD"))
+			if writeErr := conn.WriteMessage(websocket.TextMessage, chunk); writeErr != nil {
 				return writeErr
 			}
 		}
 		if err != nil {
 			if isSessionClosedError(err) {
 				if restartErr := restartSession(); restartErr != nil {
+					if errors.Is(restartErr, errBridgeClosing) {
+						return nil
+					}
 					return restartErr
 				}
 				if clearErr := conn.WriteMessage(websocket.TextMessage, []byte(sessionRestartClearSequence)); clearErr != nil {
@@ -150,6 +182,7 @@ func pumpSocketToSession(conn *websocket.Conn, currentSession func() Session, st
 		session := currentSession()
 		if resize, ok := parseResizeControlMessage(payload); ok {
 			storeLastSize(resize.Cols, resize.Rows)
+			log.Printf("[serveterm] recv resize cols=%d rows=%d", resize.Cols, resize.Rows)
 			if err := session.Resize(resize.Cols, resize.Rows); err != nil {
 				if isSessionClosedError(err) {
 					continue

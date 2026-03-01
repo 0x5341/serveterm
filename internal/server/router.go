@@ -2,6 +2,7 @@ package server
 
 import (
 	"io/fs"
+	"log"
 	"net/http"
 	"path"
 	"strings"
@@ -10,6 +11,7 @@ import (
 func New(staticFS fs.FS, wsHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		log.Println("request /healthz")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -26,6 +28,7 @@ func New(staticFS fs.FS, wsHandler http.Handler) http.Handler {
 func newSPAStaticHandler(staticFS fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(staticFS))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Println("request /")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			fileServer.ServeHTTP(w, r)
 			return

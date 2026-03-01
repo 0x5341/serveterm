@@ -154,6 +154,7 @@ describe("App", () => {
     const screen = await render(<App />);
     await expect.element(screen.getByTestId("terminal-root")).toBeInTheDocument();
     await expect.element(screen.getByTestId("top-hover-zone")).toBeInTheDocument();
+    await expect.element(screen.getByTestId("navigation-bar")).toBeInTheDocument();
     const settingLink = screen.getByRole("link", { name: "Setting" });
     await expect.element(settingLink).toHaveAttribute("href", "/setting");
     await expect.element(settingLink).toHaveAttribute("target", "_blank");

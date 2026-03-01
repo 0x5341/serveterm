@@ -43,7 +43,8 @@ function TerminalPage() {
       fitAddon.observeResize();
 
       const sendResize = (cols: number, rows: number) => {
-        client?.send(JSON.stringify({ type: "resize", cols, rows }));
+        const sent = client?.send(JSON.stringify({ type: "resize", cols, rows })) ?? false;
+        console.log("[serveterm] send resize", { cols, rows, sent });
       };
 
       client = createTerminalClient({
@@ -94,8 +95,8 @@ function TerminalPage() {
   return (
     <main className="terminal-shell">
       <div className="top-hover-zone" data-testid="top-hover-zone" />
-      <nav className="top-tabbar" data-testid="top-tabbar">
-        <a href="/setting" target="_blank" rel="noreferrer noopener" className="top-tabbar-link">
+      <nav className="navigation-bar" data-testid="navigation-bar">
+        <a href="/setting" target="_blank" rel="noreferrer noopener" className="navigation-link">
           Setting
         </a>
       </nav>

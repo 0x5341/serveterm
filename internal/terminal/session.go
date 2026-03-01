@@ -3,6 +3,7 @@ package terminal
 import (
 	"errors"
 	"io"
+	"log"
 	"os"
 	"sync"
 	"syscall"
@@ -95,20 +96,27 @@ func (s *Session) Close() error {
 
 	s.closeOnce.Do(func() {
 		if err := s.ptmx.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			log.Printf("close error: %s", err)
 			closeErr = err
 		}
 
 		if s.cmd.Process != nil {
+			log.Printf("process not nil")
 			if err := s.cmd.Process.Signal(syscall.SIGHUP); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				_ = s.cmd.Process.Kill()
+				log.Printf("signal error: %s", err)
+				err = s.cmd.Process.Kill()
+
+				log.Printf("kill error: %s", err)
 			}
 		}
 
 		select {
 		case <-s.waitDone:
 		case <-time.After(2 * time.Second):
+			log.Printf("wait...")
 			if s.cmd.Process != nil {
-				_ = s.cmd.Process.Kill()
+				err := s.cmd.Process.Kill()
+				log.Printf("kill error2: %s", err)
 			}
 			<-s.waitDone
 		}
