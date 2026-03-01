@@ -95,8 +95,15 @@ function trimConfigValue(value: string): string {
   return trimmed;
 }
 
+function normalizeColorValue(value: string): string {
+  if (/^[0-9a-fA-F]{6}$/.test(value)) {
+    return `#${value}`;
+  }
+  return value;
+}
+
 function assignThemeColor(theme: GhosttyTheme, key: keyof GhosttyTheme, rawValue: string): void {
-  const value = trimConfigValue(rawValue);
+  const value = normalizeColorValue(trimConfigValue(rawValue));
   if (value === "") {
     return;
   }
@@ -124,7 +131,8 @@ export function parseThemeInput(rawThemeInput: string): GhosttyTheme | undefined
     const configValue = trimmedLine.slice(separatorIndex + 1).trim();
 
     if (configKey === "palette") {
-      const paletteMatch = configValue.match(/^(\d+)\s*=\s*(.+)$/);
+      const paletteEntry = trimConfigValue(configValue);
+      const paletteMatch = paletteEntry.match(/^(\d+)\s*=\s*(.+)$/);
       if (!paletteMatch) {
         continue;
       }

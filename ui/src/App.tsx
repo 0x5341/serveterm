@@ -9,7 +9,11 @@ function TerminalPage() {
   const connectedOnceRef = useRef(false);
   const clearOnReconnectRef = useRef(false);
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
-  const theme = useMemo(() => parseThemeInput(readThemeCookie()), []);
+  const theme = useMemo(() => {
+    const parsedTheme = parseThemeInput(readThemeCookie());
+    console.log("[serveterm] parsed theme cookie", parsedTheme);
+    return parsedTheme;
+  }, []);
 
   useEffect(() => {
     let disposed = false;

@@ -51,6 +51,26 @@ describe("theme-cookie", () => {
     });
   });
 
+  test("hex色が#なしでも#付きに正規化される", () => {
+    expect(
+      parseThemeInput(
+        [
+          "palette = 0=101010",
+          'palette = "1=ff0000"',
+          "background = 000000",
+          "foreground = ffffff",
+          "cursor-color = 00ff00",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      black: "#101010",
+      red: "#ff0000",
+      background: "#000000",
+      foreground: "#ffffff",
+      cursor: "#00ff00",
+    });
+  });
+
   test("theme要素を含まない入力は無効として扱う", () => {
     expect(parseThemeInput("theme = Catppuccin Frappe")).toBeUndefined();
     expect(isThemeInputValid("theme = Catppuccin Frappe")).toBe(false);

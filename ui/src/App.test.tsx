@@ -178,6 +178,7 @@ describe("App", () => {
       "cursor-color = #cccccc",
     ].join("\n");
     document.cookie = `${themeCookieName}=${encodeURIComponent(themeFile)}; Path=/`;
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await render(<App />);
     await vi.waitFor(() => {
@@ -192,6 +193,13 @@ describe("App", () => {
         cursor: "#cccccc",
       },
     });
+    expect(logSpy).toHaveBeenCalledWith("[serveterm] parsed theme cookie", {
+      black: "#111111",
+      background: "#111111",
+      foreground: "#eeeeee",
+      cursor: "#cccccc",
+    });
+    logSpy.mockRestore();
   });
 
   test("受信データを描画し、キー入力とresizeをWebSocketへ送る", async () => {
