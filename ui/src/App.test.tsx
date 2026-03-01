@@ -48,7 +48,9 @@ const ghosttyMocks = vi.hoisted(() => {
       };
     }
 
-    public onResize(handler: (size: { cols: number; rows: number }) => void): { dispose: () => void } {
+    public onResize(handler: (size: { cols: number; rows: number }) => void): {
+      dispose: () => void;
+    } {
       this.onResizeHandler = handler;
       return {
         dispose: () => {
@@ -269,11 +271,12 @@ describe("App", () => {
     window.history.replaceState({}, "", "/setting");
     const screen = await render(<App />);
 
-    await expect.element(screen.getByRole("heading", { name: "Theme Settings" })).toBeInTheDocument();
-    await expect.element(screen.getByRole("link", { name: "Ghostty theme list" })).toHaveAttribute(
-      "href",
-      "https://ghostty.org/docs/features/theme",
-    );
+    await expect
+      .element(screen.getByRole("heading", { name: "Theme Settings" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "Ghostty theme list" }))
+      .toHaveAttribute("href", "https://ghostty.org/docs/features/theme");
 
     await expect.element(screen.getByRole("button", { name: "Select File" })).toBeInTheDocument();
     const input = screen.getByLabelText("Theme File Content");

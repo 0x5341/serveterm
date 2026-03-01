@@ -2,7 +2,12 @@ import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState 
 import { FitAddon, init, Terminal } from "ghostty-web";
 import "./App.css";
 import { createTerminalClient, type TerminalClient } from "@/lib/terminal-client";
-import { isThemeInputValid, parseThemeInput, readThemeCookie, writeThemeCookie } from "@/lib/theme-cookie";
+import {
+  isThemeInputValid,
+  parseThemeInput,
+  readThemeCookie,
+  writeThemeCookie,
+} from "@/lib/theme-cookie";
 
 const savedMessageDurationMs = 2_500;
 
@@ -198,7 +203,11 @@ function SettingsPage() {
             onChange={loadThemeFile}
           />
           <div className="settings-file-picker">
-            <button type="button" className="settings-secondary-button" onClick={openThemeFilePicker}>
+            <button
+              type="button"
+              className="settings-secondary-button"
+              onClick={openThemeFilePicker}
+            >
               Select File
             </button>
             <span className="settings-file-name">{selectedFileName || "No file selected"}</span>

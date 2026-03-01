@@ -119,7 +119,13 @@ describe("createTerminalClient", () => {
     }
     second.emitOpen();
 
-    expect(statuses).toEqual(["connecting", "connected", "disconnected", "connecting", "connected"]);
+    expect(statuses).toEqual([
+      "connecting",
+      "connected",
+      "disconnected",
+      "connecting",
+      "connected",
+    ]);
 
     client.close();
   });
