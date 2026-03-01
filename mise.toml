@@ -2,3 +2,7 @@
 go = "latest"
 node = "latest"
 pnpm = "latest"
+
+[tasks]
+"build:ui" = "pnpm -C ui build"
+"format" = "go fmt & pnpm -C ui fmt"
