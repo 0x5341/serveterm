@@ -1,10 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FitAddon, init, Terminal } from "ghostty-web";
 import "./App.css";
 import { createTerminalClient, type TerminalClient } from "@/lib/terminal-client";
 
 function App() {
   const terminalRootRef = useRef<HTMLDivElement | null>(null);
+  const connectedOnceRef = useRef(false);
+  const clearOnReconnectRef = useRef(false);
+  const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -38,13 +41,28 @@ function App() {
 
       client = createTerminalClient({
         onStatusChange: (status) => {
+          if (disposed) {
+            return;
+          }
           if (status === "connected" && terminal) {
+            if (clearOnReconnectRef.current) {
+              terminal.clear();
+              clearOnReconnectRef.current = false;
+            }
+            connectedOnceRef.current = true;
+            setShowDisconnectDialog(false);
             sendResize(terminal.cols, terminal.rows);
+            return;
+          }
+          if ((status === "disconnected" || status === "error") && connectedOnceRef.current) {
+            clearOnReconnectRef.current = true;
+            setShowDisconnectDialog(true);
           }
         },
         onOutput: (chunk) => {
           terminal?.write(chunk);
         },
+        reconnectDelayMs: 1_000,
       });
       inputSubscription = terminal.onData((data) => {
         client?.send(data);
@@ -69,6 +87,12 @@ function App() {
   return (
     <main className="terminal-shell">
       <div ref={terminalRootRef} className="terminal-root" data-testid="terminal-root" />
+      {showDisconnectDialog ? (
+        <dialog open className="disconnect-dialog">
+          <p>WebSocket接続が切断されました。</p>
+          <p>再接続を試行しています…</p>
+        </dialog>
+      ) : null}
     </main>
   );
 }

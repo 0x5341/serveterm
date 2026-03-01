@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 	"syscall"
 
 	"github.com/gorilla/websocket"
@@ -17,7 +18,9 @@ type Session interface {
 	Wait() error
 }
 
-type SessionFactory func() (Session, error)
+type SessionFactory func(r *http.Request) (Session, error)
+
+const sessionRestartClearSequence = "\x1b[2J\x1b[H"
 
 func NewWebSocketBridge(startSession SessionFactory) http.Handler {
 	upgrader := websocket.Upgrader{
@@ -29,37 +32,91 @@ func NewWebSocketBridge(startSession SessionFactory) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, err := startSession()
+		session, err := startSession(r)
 		if err != nil {
 			http.Error(w, "failed to start terminal session", http.StatusInternalServerError)
 			return
 		}
-		defer func() {
-			_ = session.Close()
-			_ = session.Wait()
-		}()
 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			_ = session.Close()
+			_ = session.Wait()
 			return
 		}
 		defer conn.Close()
 
+		var sessionMu sync.RWMutex
+		currentSession := session
+		getSession := func() Session {
+			sessionMu.RLock()
+			defer sessionMu.RUnlock()
+			return currentSession
+		}
+
+		var sizeMu sync.RWMutex
+		lastSizeValid := false
+		lastCols := 0
+		lastRows := 0
+		storeLastSize := func(cols, rows int) {
+			sizeMu.Lock()
+			lastSizeValid = true
+			lastCols = cols
+			lastRows = rows
+			sizeMu.Unlock()
+		}
+		loadLastSize := func() (int, int, bool) {
+			sizeMu.RLock()
+			defer sizeMu.RUnlock()
+			return lastCols, lastRows, lastSizeValid
+		}
+
+		defer func() {
+			s := getSession()
+			_ = s.Close()
+			_ = s.Wait()
+		}()
+		replaceSession := func(next Session) Session {
+			sessionMu.Lock()
+			defer sessionMu.Unlock()
+			prev := currentSession
+			currentSession = next
+			return prev
+		}
+		restartSession := func() error {
+			next, err := startSession(r)
+			if err != nil {
+				return err
+			}
+			if cols, rows, ok := loadLastSize(); ok {
+				if err := next.Resize(cols, rows); err != nil {
+					_ = next.Close()
+					_ = next.Wait()
+					return err
+				}
+			}
+			prev := replaceSession(next)
+			_ = prev.Close()
+			_ = prev.Wait()
+			return nil
+		}
+
 		errCh := make(chan error, 2)
 		go func() {
-			errCh <- pumpSessionToSocket(conn, session)
+			errCh <- pumpSessionToSocket(conn, getSession, restartSession)
 		}()
 		go func() {
-			errCh <- pumpSocketToSession(conn, session)
+			errCh <- pumpSocketToSession(conn, getSession, storeLastSize)
 		}()
 
 		<-errCh
 	})
 }
 
-func pumpSessionToSocket(conn *websocket.Conn, session Session) error {
+func pumpSessionToSocket(conn *websocket.Conn, currentSession func() Session, restartSession func() error) error {
 	buf := make([]byte, 4096)
 	for {
+		session := currentSession()
 		n, err := session.Read(buf)
 		if n > 0 {
 			if writeErr := conn.WriteMessage(websocket.TextMessage, buf[:n]); writeErr != nil {
@@ -68,14 +125,20 @@ func pumpSessionToSocket(conn *websocket.Conn, session Session) error {
 		}
 		if err != nil {
 			if isSessionClosedError(err) {
-				return nil
+				if restartErr := restartSession(); restartErr != nil {
+					return restartErr
+				}
+				if clearErr := conn.WriteMessage(websocket.TextMessage, []byte(sessionRestartClearSequence)); clearErr != nil {
+					return clearErr
+				}
+				continue
 			}
 			return err
 		}
 	}
 }
 
-func pumpSocketToSession(conn *websocket.Conn, session Session) error {
+func pumpSocketToSession(conn *websocket.Conn, currentSession func() Session, storeLastSize func(cols, rows int)) error {
 	for {
 		messageType, payload, err := conn.ReadMessage()
 		if err != nil {
@@ -84,13 +147,21 @@ func pumpSocketToSession(conn *websocket.Conn, session Session) error {
 		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
 			continue
 		}
+		session := currentSession()
 		if resize, ok := parseResizeControlMessage(payload); ok {
+			storeLastSize(resize.Cols, resize.Rows)
 			if err := session.Resize(resize.Cols, resize.Rows); err != nil {
+				if isSessionClosedError(err) {
+					continue
+				}
 				return err
 			}
 			continue
 		}
 		if _, err := session.Write(payload); err != nil {
+			if isSessionClosedError(err) {
+				continue
+			}
 			return err
 		}
 	}

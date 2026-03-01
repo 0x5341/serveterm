@@ -15,7 +15,7 @@ import (
 
 func TestWebSocketBridgeForwardsInputAndOutput(t *testing.T) {
 	session := newFakeSession()
-	handler := NewWebSocketBridge(func() (Session, error) {
+	handler := NewWebSocketBridge(func(*http.Request) (Session, error) {
 		return session, nil
 	})
 
@@ -52,7 +52,7 @@ func TestWebSocketBridgeForwardsInputAndOutput(t *testing.T) {
 
 func TestWebSocketBridgeHandlesResizeControlMessage(t *testing.T) {
 	session := newFakeSession()
-	handler := NewWebSocketBridge(func() (Session, error) {
+	handler := NewWebSocketBridge(func(*http.Request) (Session, error) {
 		return session, nil
 	})
 
@@ -83,7 +83,7 @@ func TestWebSocketBridgeHandlesResizeControlMessage(t *testing.T) {
 }
 
 func TestWebSocketBridgeStartErrorReturns500(t *testing.T) {
-	handler := NewWebSocketBridge(func() (Session, error) {
+	handler := NewWebSocketBridge(func(*http.Request) (Session, error) {
 		return nil, errors.New("boom")
 	})
 
@@ -96,6 +96,90 @@ func TestWebSocketBridgeStartErrorReturns500(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "failed to start terminal session") {
 		t.Fatalf("body = %q, want to contain %q", body, "failed to start terminal session")
+	}
+}
+
+func TestWebSocketBridgeRestartsShellWhenSessionEnds(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		sessions []*fakeSession
+	)
+	handler := NewWebSocketBridge(func(*http.Request) (Session, error) {
+		session := newFakeSession()
+		mu.Lock()
+		sessions = append(sessions, session)
+		mu.Unlock()
+		return session, nil
+	})
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	waitForSessions := func(n int) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			got := len(sessions)
+			mu.Unlock()
+			if got >= n {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for %d sessions", n)
+	}
+
+	waitForSessions(1)
+	mu.Lock()
+	first := sessions[0]
+	mu.Unlock()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"resize","cols":120,"rows":40}`)); err != nil {
+		t.Fatalf("WriteMessage() error = %v", err)
+	}
+	cols, rows := first.awaitResize(t)
+	if cols != 120 || rows != 40 {
+		t.Fatalf("first resize = %dx%d, want %dx%d", cols, rows, 120, 40)
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("first session Close() error = %v", err)
+	}
+
+	waitForSessions(2)
+	mu.Lock()
+	second := sessions[1]
+	mu.Unlock()
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline() error = %v", err)
+	}
+	_, restartMsg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage() error = %v", err)
+	}
+	if string(restartMsg) != sessionRestartClearSequence {
+		t.Fatalf("restart message = %q, want %q", string(restartMsg), sessionRestartClearSequence)
+	}
+
+	cols, rows = second.awaitResize(t)
+	if cols != 120 || rows != 40 {
+		t.Fatalf("second resize = %dx%d, want %dx%d", cols, rows, 120, 40)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("pwd\n")); err != nil {
+		t.Fatalf("WriteMessage() error = %v", err)
+	}
+	if got := second.awaitInput(t); string(got) != "pwd\n" {
+		t.Fatalf("session input = %q, want %q", string(got), "pwd\\n")
 	}
 }
 

@@ -20,6 +20,7 @@ type TerminalClientOptions = {
   createSocket?: (url: string) => SocketLike;
   onOutput: (chunk: string) => void;
   onStatusChange: (status: TerminalStatus) => void;
+  reconnectDelayMs?: number;
 };
 
 export type TerminalClient = {
@@ -28,6 +29,7 @@ export type TerminalClient = {
 };
 
 const SOCKET_OPEN = 1;
+const DEFAULT_RECONNECT_DELAY_MS = 1_000;
 
 export function toWebSocketURL(location: LocationLike): string {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -37,25 +39,59 @@ export function toWebSocketURL(location: LocationLike): string {
 export function createTerminalClient(options: TerminalClientOptions): TerminalClient {
   const location = options.location ?? window.location;
   const createSocket = options.createSocket ?? ((url: string) => new WebSocket(url));
-  const socket = createSocket(toWebSocketURL(location));
+  const reconnectDelayMs = options.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
+  const wsURL = toWebSocketURL(location);
+  let socket: SocketLike | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let closed = false;
 
-  options.onStatusChange("connecting");
+  const connect = () => {
+    if (closed) {
+      return;
+    }
+    options.onStatusChange("connecting");
+    const currentSocket = createSocket(wsURL);
+    socket = currentSocket;
 
-  socket.onopen = () => {
-    options.onStatusChange("connected");
+    currentSocket.onopen = () => {
+      if (closed || socket !== currentSocket) {
+        return;
+      }
+      options.onStatusChange("connected");
+    };
+    currentSocket.onmessage = (event: MessageEvent<string>) => {
+      if (closed || socket !== currentSocket) {
+        return;
+      }
+      options.onOutput(String(event.data ?? ""));
+    };
+    currentSocket.onerror = () => {
+      if (closed || socket !== currentSocket) {
+        return;
+      }
+      options.onStatusChange("error");
+    };
+    currentSocket.onclose = () => {
+      if (socket !== currentSocket) {
+        return;
+      }
+      options.onStatusChange("disconnected");
+      if (closed) {
+        return;
+      }
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, reconnectDelayMs);
+    };
   };
-  socket.onmessage = (event: MessageEvent<string>) => {
-    options.onOutput(String(event.data ?? ""));
-  };
-  socket.onerror = () => {
-    options.onStatusChange("error");
-  };
-  socket.onclose = () => {
-    options.onStatusChange("disconnected");
-  };
+  connect();
 
   return {
     send(input: string): boolean {
+      if (!socket) {
+        return false;
+      }
       if (socket.readyState !== SOCKET_OPEN) {
         return false;
       }
@@ -63,7 +99,12 @@ export function createTerminalClient(options: TerminalClientOptions): TerminalCl
       return true;
     },
     close(): void {
-      socket.close();
+      closed = true;
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      socket?.close();
     },
   };
 }

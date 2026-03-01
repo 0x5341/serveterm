@@ -85,4 +85,42 @@ describe("createTerminalClient", () => {
 
     expect(client.send("x")).toBe(false);
   });
+
+  test("切断後は再接続を試行する", async () => {
+    const statuses: string[] = [];
+    const sockets: MockSocket[] = [];
+
+    const client = createTerminalClient({
+      createSocket: () => {
+        const socket = new MockSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      location: { protocol: "http:", host: "localhost:8080" },
+      onStatusChange: (status) => statuses.push(status),
+      onOutput: vi.fn(),
+      reconnectDelayMs: 1,
+    });
+
+    const first = sockets[0];
+    if (!first) {
+      throw new Error("first socket not created");
+    }
+    first.emitOpen();
+    first.close();
+
+    await vi.waitFor(() => {
+      expect(sockets).toHaveLength(2);
+    });
+
+    const second = sockets[1];
+    if (!second) {
+      throw new Error("second socket not created");
+    }
+    second.emitOpen();
+
+    expect(statuses).toEqual(["connecting", "connected", "disconnected", "connecting", "connected"]);
+
+    client.close();
+  });
 });

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestWebSocketBridgeWithRealTerminalSession(t *testing.T) {
-	handler := NewWebSocketBridge(func() (Session, error) {
+	handler := NewWebSocketBridge(func(*http.Request) (Session, error) {
 		return terminal.Start(terminal.StartOptions{
 			Command: "sh",
 			Args:    []string{"-c", "stty -echo; read line; printf 'ACK:%s\\n' \"$line\""},

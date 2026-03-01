@@ -25,6 +25,7 @@ const ghosttyMocks = vi.hoisted(() => {
     public loadAddon = vi.fn();
     public focus = vi.fn();
     public dispose = vi.fn();
+    public clear = vi.fn();
     public cols = 80;
     public rows = 24;
 
@@ -119,6 +120,11 @@ class MockWebSocket {
   public emitMessage(data: string): void {
     this.onmessage?.({ data } as MessageEvent<string>);
   }
+
+  public emitClose(): void {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.(new CloseEvent("close"));
+  }
 }
 
 describe("App", () => {
@@ -173,5 +179,43 @@ describe("App", () => {
 
     terminal.emitResize(132, 43);
     expect(socket.sent).toContain('{"type":"resize","cols":132,"rows":43}');
+  });
+
+  test("切断時にdialogを表示し、再接続後にconsoleをクリアする", async () => {
+    const screen = await render(<App />);
+    await vi.waitFor(() => {
+      expect(ghosttyMocks.Terminal.instances).toHaveLength(1);
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    const terminal = ghosttyMocks.Terminal.instances[0];
+    const firstSocket = MockWebSocket.instances[0];
+    if (!terminal || !firstSocket) {
+      throw new Error("terminal or socket not initialized");
+    }
+
+    firstSocket.emitOpen();
+    firstSocket.emitClose();
+
+    await expect.element(screen.getByText("WebSocket接続が切断されました。")).toBeInTheDocument();
+    await expect.element(screen.getByText("再接続を試行しています…")).toBeInTheDocument();
+
+    await vi.waitFor(
+      () => {
+        expect(MockWebSocket.instances.length).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 3_000 },
+    );
+
+    const secondSocket = MockWebSocket.instances[1];
+    if (!secondSocket) {
+      throw new Error("second socket not initialized");
+    }
+    secondSocket.emitOpen();
+
+    await vi.waitFor(() => {
+      expect(terminal.clear).toHaveBeenCalledTimes(1);
+      expect(document.body.textContent ?? "").not.toContain("WebSocket接続が切断されました。");
+    });
   });
 });
