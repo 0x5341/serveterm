@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon, init, Terminal } from "ghostty-web";
 import "./App.css";
 import { createTerminalClient, type TerminalClient } from "@/lib/terminal-client";
+import { isThemeInputValid, parseThemeInput, readThemeCookie, writeThemeCookie } from "@/lib/theme-cookie";
 
-function App() {
+function TerminalPage() {
   const terminalRootRef = useRef<HTMLDivElement | null>(null);
   const connectedOnceRef = useRef(false);
   const clearOnReconnectRef = useRef(false);
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
+  const theme = useMemo(() => parseThemeInput(readThemeCookie()), []);
 
   useEffect(() => {
     let disposed = false;
@@ -27,6 +29,7 @@ function App() {
         cursorBlink: true,
         scrollback: 10_000,
         fontFamily: '"JetBrains Mono", "MesloLGS NF", "Symbols Nerd Font Mono", monospace',
+        ...(theme ? { theme } : {}),
       });
 
       fitAddon = new FitAddon();
@@ -82,10 +85,16 @@ function App() {
       fitAddon?.dispose();
       terminal?.dispose();
     };
-  }, []);
+  }, [theme]);
 
   return (
     <main className="terminal-shell">
+      <div className="top-hover-zone" data-testid="top-hover-zone" />
+      <nav className="top-tabbar" data-testid="top-tabbar">
+        <a href="/setting" target="_blank" rel="noreferrer noopener" className="top-tabbar-link">
+          Setting
+        </a>
+      </nav>
       <div ref={terminalRootRef} className="terminal-root" data-testid="terminal-root" />
       {showDisconnectDialog ? (
         <dialog open className="disconnect-dialog">
@@ -95,6 +104,95 @@ function App() {
       ) : null}
     </main>
   );
+}
+
+function SettingsPage() {
+  const [themeInput, setThemeInput] = useState(() => readThemeCookie());
+  const [errorMessage, setErrorMessage] = useState("");
+  const [savedMessage, setSavedMessage] = useState("");
+
+  const loadThemeFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const inputElement = event.currentTarget;
+    const file = inputElement.files?.[0];
+    inputElement.value = "";
+    if (!file) {
+      return;
+    }
+    void file.text().then(
+      (content) => {
+        setThemeInput(content);
+        setErrorMessage("");
+        setSavedMessage("");
+      },
+      () => {
+        setErrorMessage("themeファイルの読み込みに失敗しました。");
+        setSavedMessage("");
+      },
+    );
+  };
+
+  const saveTheme = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isThemeInputValid(themeInput)) {
+      setErrorMessage("themeファイル形式で入力してください。");
+      setSavedMessage("");
+      return;
+    }
+    writeThemeCookie(themeInput);
+    setErrorMessage("");
+    setSavedMessage("保存しました。");
+  };
+
+  return (
+    <main className="settings-shell">
+      <section className="settings-card">
+        <h1>Theme設定</h1>
+        <p>Ghosttyのthemeファイルを指定して保存してください。</p>
+        <form className="settings-form" onSubmit={saveTheme}>
+          <label htmlFor="theme-file-input">Themeファイル</label>
+          <input
+            id="theme-file-input"
+            aria-label="Themeファイル"
+            type="file"
+            accept=".theme,.conf,.txt,text/plain"
+            onChange={loadThemeFile}
+          />
+          <label htmlFor="theme-input">Theme file</label>
+          <textarea
+            id="theme-input"
+            aria-label="Theme file"
+            value={themeInput}
+            onChange={(event) => setThemeInput(event.target.value)}
+            placeholder={"palette = 0=#1b1f2a\nbackground = #1a1b26\nforeground = #a9b1d6"}
+            rows={10}
+          />
+          <button type="submit">保存</button>
+        </form>
+        <a
+          href="https://ghostty.org/docs/features/theme"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="settings-link"
+        >
+          Ghosttyのtheme一覧
+        </a>
+        {errorMessage ? (
+          <p role="alert" className="settings-error">
+            {errorMessage}
+          </p>
+        ) : null}
+        {savedMessage ? <p className="settings-success">{savedMessage}</p> : null}
+      </section>
+    </main>
+  );
+}
+
+function App() {
+  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === "/setting") {
+    return <SettingsPage />;
+  }
+  return <TerminalPage />;
 }
 
 export default App;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { themeCookieName } from "@/lib/theme-cookie";
 
 const ghosttyMocks = vi.hoisted(() => {
   const init = vi.fn(async () => {});
@@ -128,7 +129,13 @@ class MockWebSocket {
 }
 
 describe("App", () => {
+  const resetPath = () => {
+    window.history.replaceState({}, "", "/");
+  };
+
   beforeEach(() => {
+    resetPath();
+    document.cookie = `${themeCookieName}=; Path=/; Max-Age=0`;
     ghosttyMocks.init.mockClear();
     ghosttyMocks.Terminal.instances = [];
     ghosttyMocks.Terminal.createdOptions = [];
@@ -138,12 +145,18 @@ describe("App", () => {
   });
 
   afterEach(() => {
+    resetPath();
+    document.cookie = `${themeCookieName}=; Path=/; Max-Age=0`;
     vi.unstubAllGlobals();
   });
 
   test("terminalのみを前面表示し ghostty を初期化する", async () => {
     const screen = await render(<App />);
     await expect.element(screen.getByTestId("terminal-root")).toBeInTheDocument();
+    await expect.element(screen.getByTestId("top-hover-zone")).toBeInTheDocument();
+    const settingLink = screen.getByRole("link", { name: "Setting" });
+    await expect.element(settingLink).toHaveAttribute("href", "/setting");
+    await expect.element(settingLink).toHaveAttribute("target", "_blank");
     await vi.waitFor(() => {
       expect(ghosttyMocks.init).toHaveBeenCalledTimes(1);
       expect(ghosttyMocks.Terminal.instances).toHaveLength(1);
@@ -154,6 +167,30 @@ describe("App", () => {
     expect(ghosttyMocks.Terminal.instances[0]?.openedElement).not.toBeNull();
     expect(ghosttyMocks.Terminal.createdOptions[0]).toMatchObject({
       fontFamily: expect.stringContaining("Nerd Font"),
+    });
+  });
+
+  test("cookieのthemeを読み込んでterminalに適用する", async () => {
+    const themeFile = [
+      "palette = 0=#111111",
+      "background = #111111",
+      "foreground = #eeeeee",
+      "cursor-color = #cccccc",
+    ].join("\n");
+    document.cookie = `${themeCookieName}=${encodeURIComponent(themeFile)}; Path=/`;
+
+    await render(<App />);
+    await vi.waitFor(() => {
+      expect(ghosttyMocks.Terminal.instances).toHaveLength(1);
+    });
+
+    expect(ghosttyMocks.Terminal.createdOptions[0]).toMatchObject({
+      theme: {
+        black: "#111111",
+        background: "#111111",
+        foreground: "#eeeeee",
+        cursor: "#cccccc",
+      },
     });
   });
 
@@ -217,5 +254,27 @@ describe("App", () => {
       expect(terminal.clear).toHaveBeenCalledTimes(1);
       expect(document.body.textContent ?? "").not.toContain("WebSocket接続が切断されました。");
     });
+  });
+
+  test("settingページでthemeを保存でき、Ghosttyリンクを表示する", async () => {
+    window.history.replaceState({}, "", "/setting");
+    const screen = await render(<App />);
+
+    await expect.element(screen.getByRole("heading", { name: "Theme設定" })).toBeInTheDocument();
+    await expect.element(screen.getByRole("link", { name: "Ghosttyのtheme一覧" })).toHaveAttribute(
+      "href",
+      "https://ghostty.org/docs/features/theme",
+    );
+
+    await expect.element(screen.getByLabelText("Themeファイル")).toBeInTheDocument();
+    const input = screen.getByLabelText("Theme file");
+    await input.fill("background = #000000\nforeground = #ffffff");
+    await screen.getByRole("button", { name: "保存" }).click();
+
+    expect(decodeURIComponent(document.cookie)).toContain(`${themeCookieName}=`);
+    expect(decodeURIComponent(document.cookie)).toContain("background = #000000");
+    expect(decodeURIComponent(document.cookie)).toContain("foreground = #ffffff");
+    await expect.element(screen.getByText("保存しました。")).toBeInTheDocument();
+    expect(ghosttyMocks.init).not.toHaveBeenCalled();
   });
 });
