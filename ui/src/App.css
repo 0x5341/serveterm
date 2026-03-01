@@ -139,8 +139,23 @@ body {
   gap: 0.5rem;
 }
 
-.settings-form input[type="file"] {
+.settings-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-file-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settings-file-name {
   color: #cbd5e1;
+  font-size: 0.9rem;
 }
 
 .settings-form textarea {
@@ -158,12 +173,22 @@ body {
   font-size: 0.9rem;
 }
 
-.settings-form button {
+.settings-primary-button,
+.settings-secondary-button {
   width: fit-content;
   padding: 0.45rem 0.9rem;
+  border-radius: 0.5rem;
+  color: #e2e8f0;
+}
+
+.settings-primary-button {
   background: #2563eb;
   border: 1px solid #1d4ed8;
-  color: #e2e8f0;
+}
+
+.settings-secondary-button {
+  background: #0b1220;
+  border: 1px solid #334155;
 }
 
 .settings-link {

@@ -269,21 +269,27 @@ describe("App", () => {
     window.history.replaceState({}, "", "/setting");
     const screen = await render(<App />);
 
-    await expect.element(screen.getByRole("heading", { name: "Theme設定" })).toBeInTheDocument();
-    await expect.element(screen.getByRole("link", { name: "Ghosttyのtheme一覧" })).toHaveAttribute(
+    await expect.element(screen.getByRole("heading", { name: "Theme Settings" })).toBeInTheDocument();
+    await expect.element(screen.getByRole("link", { name: "Ghostty theme list" })).toHaveAttribute(
       "href",
       "https://ghostty.org/docs/features/theme",
     );
 
-    await expect.element(screen.getByLabelText("Themeファイル")).toBeInTheDocument();
-    const input = screen.getByLabelText("Theme file");
+    await expect.element(screen.getByRole("button", { name: "Select File" })).toBeInTheDocument();
+    const input = screen.getByLabelText("Theme File Content");
     await input.fill("background = #000000\nforeground = #ffffff");
-    await screen.getByRole("button", { name: "保存" }).click();
+    await screen.getByRole("button", { name: "Save" }).click();
 
     expect(decodeURIComponent(document.cookie)).toContain(`${themeCookieName}=`);
     expect(decodeURIComponent(document.cookie)).toContain("background = #000000");
     expect(decodeURIComponent(document.cookie)).toContain("foreground = #ffffff");
-    await expect.element(screen.getByText("保存しました。")).toBeInTheDocument();
+    await expect.element(screen.getByText("Saved.")).toBeInTheDocument();
+    await vi.waitFor(
+      () => {
+        expect(document.body.textContent ?? "").not.toContain("Saved.");
+      },
+      { timeout: 4_000 },
+    );
     expect(ghosttyMocks.init).not.toHaveBeenCalled();
   });
 });

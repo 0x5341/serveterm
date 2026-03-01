@@ -4,6 +4,8 @@ import "./App.css";
 import { createTerminalClient, type TerminalClient } from "@/lib/terminal-client";
 import { isThemeInputValid, parseThemeInput, readThemeCookie, writeThemeCookie } from "@/lib/theme-cookie";
 
+const savedMessageDurationMs = 2_500;
+
 function TerminalPage() {
   const terminalRootRef = useRef<HTMLDivElement | null>(null);
   const connectedOnceRef = useRef(false);
@@ -112,9 +114,32 @@ function TerminalPage() {
 }
 
 function SettingsPage() {
+  const themeFileInputRef = useRef<HTMLInputElement | null>(null);
+  const savedMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [themeInput, setThemeInput] = useState(() => readThemeCookie());
+  const [selectedFileName, setSelectedFileName] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
+
+  const clearSavedMessageTimer = () => {
+    if (savedMessageTimerRef.current !== null) {
+      clearTimeout(savedMessageTimerRef.current);
+      savedMessageTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (savedMessageTimerRef.current !== null) {
+        clearTimeout(savedMessageTimerRef.current);
+        savedMessageTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const openThemeFilePicker = () => {
+    themeFileInputRef.current?.click();
+  };
 
   const loadThemeFile = (event: ChangeEvent<HTMLInputElement>) => {
     const inputElement = event.currentTarget;
@@ -123,14 +148,17 @@ function SettingsPage() {
     if (!file) {
       return;
     }
+    setSelectedFileName(file.name);
     void file.text().then(
       (content) => {
         setThemeInput(content);
+        clearSavedMessageTimer();
         setErrorMessage("");
         setSavedMessage("");
       },
       () => {
-        setErrorMessage("themeファイルの読み込みに失敗しました。");
+        clearSavedMessageTimer();
+        setErrorMessage("Failed to read theme file.");
         setSavedMessage("");
       },
     );
@@ -139,39 +167,54 @@ function SettingsPage() {
   const saveTheme = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!isThemeInputValid(themeInput)) {
-      setErrorMessage("themeファイル形式で入力してください。");
+      clearSavedMessageTimer();
+      setErrorMessage("Please provide a valid Ghostty theme file.");
       setSavedMessage("");
       return;
     }
     writeThemeCookie(themeInput);
+    clearSavedMessageTimer();
     setErrorMessage("");
-    setSavedMessage("保存しました。");
+    setSavedMessage("Saved.");
+    savedMessageTimerRef.current = setTimeout(() => {
+      setSavedMessage("");
+      savedMessageTimerRef.current = null;
+    }, savedMessageDurationMs);
   };
 
   return (
     <main className="settings-shell">
       <section className="settings-card">
-        <h1>Theme設定</h1>
-        <p>Ghosttyのthemeファイルを指定して保存してください。</p>
+        <h1>Theme Settings</h1>
+        <p>Select a Ghostty theme file and save it.</p>
         <form className="settings-form" onSubmit={saveTheme}>
-          <label htmlFor="theme-file-input">Themeファイル</label>
           <input
+            ref={themeFileInputRef}
             id="theme-file-input"
-            aria-label="Themeファイル"
+            aria-label="Theme File Input"
             type="file"
             accept=".theme,.conf,.txt,text/plain"
+            className="settings-file-input"
             onChange={loadThemeFile}
           />
-          <label htmlFor="theme-input">Theme file</label>
+          <div className="settings-file-picker">
+            <button type="button" className="settings-secondary-button" onClick={openThemeFilePicker}>
+              Select File
+            </button>
+            <span className="settings-file-name">{selectedFileName || "No file selected"}</span>
+          </div>
+          <label htmlFor="theme-input">Theme File Content</label>
           <textarea
             id="theme-input"
-            aria-label="Theme file"
+            aria-label="Theme File Content"
             value={themeInput}
             onChange={(event) => setThemeInput(event.target.value)}
             placeholder={"palette = 0=#1b1f2a\nbackground = #1a1b26\nforeground = #a9b1d6"}
             rows={10}
           />
-          <button type="submit">保存</button>
+          <button type="submit" className="settings-primary-button">
+            Save
+          </button>
         </form>
         <a
           href="https://ghostty.org/docs/features/theme"
@@ -179,7 +222,7 @@ function SettingsPage() {
           rel="noreferrer noopener"
           className="settings-link"
         >
-          Ghosttyのtheme一覧
+          Ghostty theme list
         </a>
         {errorMessage ? (
           <p role="alert" className="settings-error">
