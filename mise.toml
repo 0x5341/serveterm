@@ -4,5 +4,6 @@ node = "latest"
 pnpm = "latest"
 
 [tasks]
+build = { depends = ["build:ui"], run = "go build -o devco", env = { "CGO_ENABLED" = "0" } }
 "build:ui" = "pnpm -C ui build"
 "format" = "go fmt & pnpm -C ui fmt"
