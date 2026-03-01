@@ -1,5 +1,6 @@
 [tools]
 go = "latest"
+goreleaser = "latest"
 node = "latest"
 pnpm = "latest"
 
