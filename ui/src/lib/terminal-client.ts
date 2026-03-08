@@ -1,8 +1,10 @@
+import { resolveAppBaseURL } from "./app-path";
+
 export type TerminalStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export type LocationLike = {
   protocol: string;
-  host: string;
+  href: string;
 };
 
 export type SocketLike = {
@@ -17,6 +19,7 @@ export type SocketLike = {
 
 type TerminalClientOptions = {
   location?: LocationLike;
+  baseURL?: string;
   createSocket?: (url: string) => SocketLike;
   onOutput: (chunk: string) => void;
   onStatusChange: (status: TerminalStatus) => void;
@@ -31,16 +34,17 @@ export type TerminalClient = {
 const SOCKET_OPEN = 1;
 const DEFAULT_RECONNECT_DELAY_MS = 1_000;
 
-export function toWebSocketURL(location: LocationLike): string {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${location.host}/ws`;
+export function toWebSocketURL(location: LocationLike, baseURL = "./"): string {
+  const wsURL = new URL("ws", resolveAppBaseURL(location.href, baseURL));
+  wsURL.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return wsURL.toString();
 }
 
 export function createTerminalClient(options: TerminalClientOptions): TerminalClient {
   const location = options.location ?? window.location;
   const createSocket = options.createSocket ?? ((url: string) => new WebSocket(url));
   const reconnectDelayMs = options.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
-  const wsURL = toWebSocketURL(location);
+  const wsURL = toWebSocketURL(location, options.baseURL);
   let socket: SocketLike | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;

@@ -2,6 +2,7 @@ import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState 
 import { FitAddon, init, Terminal } from "ghostty-web";
 import "./App.css";
 import { createTerminalClient, type TerminalClient } from "@/lib/terminal-client";
+import { isCurrentAppPath, resolveAppPath } from "@/lib/app-path";
 import {
   isThemeInputValid,
   parseThemeInput,
@@ -16,6 +17,7 @@ function TerminalPage() {
   const connectedOnceRef = useRef(false);
   const clearOnReconnectRef = useRef(false);
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
+  const settingsHref = resolveAppPath(window.location.href, "setting");
   const theme = useMemo(() => {
     const parsedTheme = parseThemeInput(readThemeCookie());
     console.log("[serveterm] parsed theme cookie", parsedTheme);
@@ -77,6 +79,7 @@ function TerminalPage() {
         onOutput: (chunk) => {
           terminal?.write(chunk);
         },
+        baseURL: "./",
         reconnectDelayMs: 1_000,
       });
       inputSubscription = terminal.onData((data) => {
@@ -103,7 +106,7 @@ function TerminalPage() {
     <main className="terminal-shell">
       <div className="top-hover-zone" data-testid="top-hover-zone" />
       <nav className="navigation-bar" data-testid="navigation-bar">
-        <a href="/setting" target="_blank" rel="noreferrer noopener" className="navigation-link">
+        <a href={settingsHref} target="_blank" rel="noreferrer noopener" className="navigation-link">
           Setting
         </a>
       </nav>
@@ -245,8 +248,7 @@ function SettingsPage() {
 }
 
 function App() {
-  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
-  if (pathname === "/setting") {
+  if (isCurrentAppPath(window.location.href, "setting")) {
     return <SettingsPage />;
   }
   return <TerminalPage />;

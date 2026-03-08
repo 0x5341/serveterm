@@ -131,8 +131,8 @@ class MockWebSocket {
 }
 
 describe("App", () => {
-  const resetPath = () => {
-    window.history.replaceState({}, "", "/");
+  const resetPath = (pathname = "/") => {
+    window.history.replaceState({}, "", pathname);
   };
 
   beforeEach(() => {
@@ -218,6 +218,8 @@ describe("App", () => {
       throw new Error("terminal or websocket not initialized");
     }
 
+    expect(socket.url).toBe(`ws://${window.location.host}/ws`);
+
     socket.emitOpen();
     socket.emitMessage("hello");
     expect(terminal.writeCalls).toContain("hello");
@@ -293,6 +295,35 @@ describe("App", () => {
       },
       { timeout: 4_000 },
     );
+    expect(ghosttyMocks.init).not.toHaveBeenCalled();
+  });
+
+  test("base path が setting で終わっていても terminal page を正しく判定する", async () => {
+    resetPath("/proxy/setting/");
+    const screen = await render(<App />);
+
+    await expect.element(screen.getByTestId("terminal-root")).toBeInTheDocument();
+    const settingLink = screen.getByRole("link", { name: "Setting" });
+    await expect.element(settingLink).toHaveAttribute("href", "/proxy/setting/setting");
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    const socket = MockWebSocket.instances[0];
+    if (!socket) {
+      throw new Error("socket not initialized");
+    }
+    expect(socket.url).toBe(`ws://${window.location.host}/proxy/setting/ws`);
+  });
+
+  test("base path が setting で終わっていても settings page を正しく判定する", async () => {
+    resetPath("/proxy/setting/setting");
+    const screen = await render(<App />);
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Theme Settings" }))
+      .toBeInTheDocument();
     expect(ghosttyMocks.init).not.toHaveBeenCalled();
   });
 });

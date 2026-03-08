@@ -26,6 +26,7 @@ var embeddedUI embed.FS
 type appConfig struct {
 	Address        string
 	Host           string
+	BasePath       string
 	DefaultCommand string
 }
 
@@ -45,6 +46,7 @@ func newRootCommand() *cobra.Command {
 	cfg := appConfig{
 		Address:        envOrDefault("SERVETERM_ADDR", defaultAddress),
 		Host:           envOrDefault("SERVETERM_HOST", defaultHost),
+		BasePath:       envOrDefault("SERVETERM_BASE_PATH", "/"),
 		DefaultCommand: os.Getenv("SERVETERM_DEFAULT_COMMAND"),
 	}
 
@@ -58,6 +60,7 @@ func newRootCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cfg.Address, "address", cfg.Address, "listen address or port")
 	cmd.Flags().StringVar(&cfg.Host, "host", cfg.Host, "listen host when --address is a port")
+	cmd.Flags().StringVar(&cfg.BasePath, "base-path", cfg.BasePath, "URL base path for static files, SPA routes, healthz, and websocket")
 	cmd.Flags().StringVar(&cfg.DefaultCommand, "default-command", cfg.DefaultCommand, "default shell command (supports args)")
 	return cmd
 }
@@ -87,7 +90,7 @@ func run(cfg appConfig) error {
 			Command: spec.Command,
 			Args:    spec.Args,
 		})
-	}))
+	}), cfg.BasePath)
 
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		return fmt.Errorf("listen: %w", err)

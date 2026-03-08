@@ -35,15 +35,30 @@ class MockSocket implements SocketLike {
 
 describe("toWebSocketURL", () => {
   test("http は ws に変換される", () => {
-    expect(toWebSocketURL({ protocol: "http:", host: "localhost:8080" })).toBe(
+    expect(toWebSocketURL({ protocol: "http:", href: "http://localhost:8080/" }, "./")).toBe(
       "ws://localhost:8080/ws",
     );
   });
 
   test("https は wss に変換される", () => {
-    expect(toWebSocketURL({ protocol: "https:", host: "example.com" })).toBe(
+    expect(toWebSocketURL({ protocol: "https:", href: "https://example.com/" }, "./")).toBe(
       "wss://example.com/ws",
     );
+  });
+
+  test("reverse proxy 配下の root でも base path 配下の ws に接続する", () => {
+    expect(
+      toWebSocketURL({ protocol: "https:", href: "https://example.com/proxy/serveterm/" }, "./"),
+    ).toBe("wss://example.com/proxy/serveterm/ws");
+  });
+
+  test("reverse proxy 配下の SPA route でも base path 配下の ws に接続する", () => {
+    expect(
+      toWebSocketURL(
+        { protocol: "https:", href: "https://example.com/proxy/serveterm/setting" },
+        "./",
+      ),
+    ).toBe("wss://example.com/proxy/serveterm/ws");
   });
 });
 
@@ -55,7 +70,8 @@ describe("createTerminalClient", () => {
 
     const client = createTerminalClient({
       createSocket: () => socket,
-      location: { protocol: "http:", host: "localhost:8080" },
+      location: { protocol: "http:", href: "http://localhost:8080/" },
+      baseURL: "./",
       onStatusChange: (status) => statuses.push(status),
       onOutput: (chunk) => outputs.push(chunk),
     });
@@ -78,7 +94,8 @@ describe("createTerminalClient", () => {
 
     const client = createTerminalClient({
       createSocket: () => socket,
-      location: { protocol: "http:", host: "localhost:8080" },
+      location: { protocol: "http:", href: "http://localhost:8080/" },
+      baseURL: "./",
       onStatusChange,
       onOutput,
     });
@@ -96,7 +113,8 @@ describe("createTerminalClient", () => {
         sockets.push(socket);
         return socket;
       },
-      location: { protocol: "http:", host: "localhost:8080" },
+      location: { protocol: "http:", href: "http://localhost:8080/app/" },
+      baseURL: "./",
       onStatusChange: (status) => statuses.push(status),
       onOutput: vi.fn(),
       reconnectDelayMs: 1,
